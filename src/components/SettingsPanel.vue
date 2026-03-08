@@ -1,42 +1,133 @@
 <script setup>
+/**
+ * 设置面板组件
+ * 
+ * 负责配置模型参数，包括：
+ * - 模型选择
+ * - 流式响应开关
+ * - API Key 配置
+ * - maxTokens（最大 token 数）
+ * - temperature（温度参数）
+ * - topP（核采样参数）
+ * - topK（Top-K 采样参数）
+ * 
+ * 功能：
+ * - 所有配置项都会自动持久化到 localStorage
+ * - 根据选择的模型动态调整 maxTokens 上限
+ * - 提供友好的 UI 和提示信息
+ * 
+ * 使用方式：
+ * 父组件通过 ref 调用 openDrawer 方法打开设置面板
+ * 
+ * @example
+ * <SettingsPanel ref="settingDrawer" />
+ * 
+ * // 在父组件中
+ * settingDrawer.value.openDrawer()
+ */
+
 import { ref, watch, computed } from 'vue'
 import { useSettingStore, modelOptions } from '@/stores/setting'
 import { QuestionFilled } from '@element-plus/icons-vue'
 
+/**
+ * 全局设置 store
+ * 
+ * 所有配置项都会被持久化到本地（localStorage）
+ * 修改配置后会自动保存，刷新页面后配置不丢失
+ */
 const settingStore = useSettingStore()
 
-// 控制抽屉显示
+/**
+ * 控制抽屉显示/隐藏
+ * 
+ * @type {Ref<boolean>}
+ * @description
+ * 控制 el-drawer 组件的显示/隐藏
+ * true: 显示设置面板
+ * false: 隐藏设置面板
+ */
 const visible = ref(false)
 
-// 计算当前选中模型的最大 tokens
+/**
+ * 根据当前选中模型动态计算其允许的最大 tokens
+ * 
+ * @type {ComputedRef<number>}
+ * @description
+ * 上限会用来限制滑块范围，防止用户设置超过模型支持的最大值
+ * 
+ * 计算逻辑：
+ * 1. 从 modelOptions 中查找当前选中的模型
+ * 2. 如果找到，返回该模型的 maxTokens
+ * 3. 如果找不到，返回默认值 4096
+ * 
+ * @returns {number} 当前模型支持的最大 token 数
+ */
 const currentMaxTokens = computed(() => {
+  // 从模型列表中查找当前选中的模型
   const selectedModel = modelOptions.find((option) => option.value === settingStore.settings.model)
+  // 如果找到模型，返回其 maxTokens；否则返回默认值 4096
   return selectedModel ? selectedModel.maxTokens : 4096
 })
 
-// 监听模型变化
+/**
+ * 监听模型变化
+ * 
+ * 当切换模型时，自动调整 maxTokens，避免超过模型上限
+ * 
+ * @description
+ * 监听逻辑：
+ * 1. 监听 settingStore.settings.model 的变化
+ * 2. 当模型切换时，检查当前 maxTokens 是否超过新模型的上限
+ * 3. 如果超过，自动调整为新模型的上限值
+ * 
+ * 使用场景：
+ * - 用户从支持 16K tokens 的模型切换到只支持 4K tokens 的模型
+ * - 如果当前 maxTokens 设置为 8000，会自动调整为 4096
+ */
 watch(
-  () => settingStore.settings.model,
+  () => settingStore.settings.model, // 监听的响应式数据
   (newModel) => {
+    // 查找新模型对应的配置
     const selectedModel = modelOptions.find((option) => option.value === newModel)
     if (selectedModel) {
       // 更新 maxTokens，并确保不超过模型的最大值
+      // Math.min 确保 maxTokens 不会超过模型支持的上限
       settingStore.settings.maxTokens = Math.min(
-        settingStore.settings.maxTokens,
-        selectedModel.maxTokens,
+        settingStore.settings.maxTokens, // 当前设置的 maxTokens
+        selectedModel.maxTokens, // 新模型支持的最大值
       )
     }
   },
 )
 
-// 打开抽屉
+/**
+ * 打开抽屉的方法
+ * 
+ * 供父组件通过 ref 调用
+ * 
+ * @description
+ * 设置 visible 为 true，触发 el-drawer 显示
+ * 
+ * @example
+ * settingDrawer.value.openDrawer()
+ */
 const openDrawer = () => {
   visible.value = true
 }
 
-// 导出方法供父组件调用
+/**
+ * 暴露方法给父组件
+ * 
+ * 通过 defineExpose 暴露 openDrawer 方法
+ * 父组件（ChatView）可以通过 ref 访问此方法
+ * 
+ * @description
+ * 暴露的方法：
+ * - openDrawer: 打开设置面板
+ */
 defineExpose({
-  openDrawer,
+  openDrawer, // 打开设置面板的方法
 })
 </script>
 
@@ -49,7 +140,10 @@ defineExpose({
         <el-select
           v-model="settingStore.settings.model"
           class="model-select"
-          placeholder="选择模型"
+          placeholder="选择或输入模型"
+          filterable
+          allow-create
+          default-first-option
         >
           <el-option
             v-for="option in modelOptions"
@@ -78,21 +172,18 @@ defineExpose({
         <div class="setting-label-row">
           <div class="label-with-tooltip">
             <span>API Key</span>
-            <el-tooltip content="设置 API Key" placement="top">
+            <el-tooltip content="留空时使用内置代理 Key；填写后优先使用你的 Key" placement="top">
               <el-icon><QuestionFilled /></el-icon>
             </el-tooltip>
           </div>
-
-          <a href="https://cloud.siliconflow.cn/account/ak" target="_blank" class="get-key-link">
-            获取 API Key
-          </a>
         </div>
         <el-input
           v-model="settingStore.settings.apiKey"
           type="password"
-          placeholder="请输入 API Key"
+          placeholder="可选：输入你的 API Key 覆盖内置 Key"
           show-password
         />
+        <div class="hint-text">留空即可直接对话；填写后会使用你的 Key 并可切换/自定义模型。</div>
       </div>
 
       <!-- Max Tokens -->
@@ -240,12 +331,6 @@ defineExpose({
       gap: 8px;
     }
 
-    // 获取 API Key 链接样式
-    .get-key-link {
-      font-size: 14px;
-      color: #3f7af1;
-      text-decoration: none;
-    }
   }
 
   // 控件容器样式，用于包含滑块和数字输入框
@@ -268,6 +353,13 @@ defineExpose({
   // 模型选择下拉框宽度
   .model-select {
     width: 100%;
+  }
+
+  .hint-text {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #71717a;
+    line-height: 1.4;
   }
 
   // 下拉选项文字颜色
