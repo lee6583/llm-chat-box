@@ -18,9 +18,11 @@
     "animate.css": "^4.1.1",
     "element-plus": "^2.9.3",
     "highlight.js": "^11.11.1",
+    "mammoth": "^1.11.0",
     "markdown-it": "^14.1.0",
     "markdown-it-emoji": "^3.0.0",
     "markdown-it-link-attributes": "^4.0.1",
+    "pdfjs-dist": "^5.5.207",
     "pinia": "^2.3.1",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"

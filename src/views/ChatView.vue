@@ -67,6 +67,8 @@ const currentMessages = computed(() => chatStore.currentMessages)
 const isLoading = computed(() => chatStore.isLoading)
 // 设置 store：获取当前模型、是否流式、API Key 等配置
 const settingStore = useSettingStore()
+// 仅在当前页面会话内缓存“真实请求 content”，避免把大体积附件内容持久化到 localStorage
+const requestContentCache = new Map()
 
 /**
  * 消息列表容器 DOM 引用
@@ -290,10 +292,21 @@ const sendWithStreamRetry = async (messages) => {
 // 参数 messageContent：由 ChatInput 组件传入，包含 text + files
 const handleSend = async (messageContent) => {
   try {
+    const requestContent = messageContent.apiContent ?? messageContent.text
+    const historyMessages = chatStore.currentMessages.map(({ id, role, content }) => ({
+      role,
+      content: requestContentCache.get(id) ?? content,
+    }))
+
     // 1）添加一条用户消息到当前会话
-    chatStore.addMessage(
-      messageHandler.formatMessage('user', messageContent.text, '', messageContent.files),
+    const userMessage = messageHandler.formatMessage(
+      'user',
+      messageContent.text,
+      '',
+      messageContent.files,
     )
+    requestContentCache.set(userMessage.id, requestContent)
+    chatStore.addMessage(userMessage)
     // 2）预先插入一条“空”的助手消息，后续通过流式/普通响应实时填充
     chatStore.addMessage(messageHandler.formatMessage('assistant', '', ''))
 
@@ -302,8 +315,14 @@ const handleSend = async (messageContent) => {
     const lastMessage = chatStore.getLastMessage()
     lastMessage.loading = true
 
-    // 4）构造 messages 数组，只保留 role + content，发送给 LLM 接口
-    const messages = chatStore.currentMessages.map(({ role, content }) => ({ role, content }))
+    // 4）构造 messages 数组：历史 + 当前用户请求（不包含占位的空助手消息）
+    const messages = [
+      ...historyMessages,
+      {
+        role: 'user',
+        content: requestContent,
+      },
+    ]
 
     // 5）使用带流式重连的封装方法
     await sendWithStreamRetry(messages)
@@ -372,7 +391,11 @@ const handleRegenerate = async () => {
     const lastUserMessage = chatStore.currentMessages[chatStore.currentMessages.length - 2]
     // 使用 splice 删除最后两个元素
     chatStore.currentMessages.splice(-2, 2)
-    await handleSend({ text: lastUserMessage.content, files: lastUserMessage.files })
+    await handleSend({
+      text: lastUserMessage.content,
+      files: lastUserMessage.files,
+      apiContent: requestContentCache.get(lastUserMessage.id) ?? lastUserMessage.content,
+    })
   } catch (error) {
     console.error('Failed to regenerate message:', error)
   }
