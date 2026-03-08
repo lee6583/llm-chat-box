@@ -29,6 +29,17 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://cliproxyapi-h
 const DEFAULT_API_KEY =
   import.meta.env.VITE_DEFAULT_API_KEY || import.meta.env.VITE_API_KEY || 'lyfzsx2005'
 
+// 代理服务返回“没有可用模型”时使用的错误标识
+const NO_AVAILABLE_MODELS_CODE = 'NO_AVAILABLE_MODELS'
+
+// /v1/models 结果缓存，避免每次发送都额外请求
+const MODEL_CACHE_TTL = 30 * 1000
+const modelCache = {
+  cacheKey: '',
+  expiresAt: 0,
+  models: null,
+}
+
 /**
  * 重试配置常量
  */
@@ -47,6 +58,9 @@ const RETRY_CONFIG = {
   JITTER_RANGE: 0.3,
 }
 
+const trimTrailingSlash = (value) => value.replace(/\/+$/, '')
+const getApiUrl = (path) => `${trimTrailingSlash(API_BASE_URL)}${path}`
+
 /**
  * 判断错误是否可重试
  *
@@ -55,6 +69,16 @@ const RETRY_CONFIG = {
  * @returns {boolean} 是否可重试
  */
 const isRetryableError = (error, status) => {
+  const errorMessage = error?.message?.toLowerCase?.() || ''
+
+  // 配置类错误（模型/provider 不存在）不应重试
+  if (
+    errorMessage.includes('unknown provider for model') ||
+    errorMessage.includes(NO_AVAILABLE_MODELS_CODE.toLowerCase())
+  ) {
+    return false
+  }
+
   // 网络错误、超时错误可以重试
   if (
     error.message.includes('network') ||
@@ -206,6 +230,81 @@ const getEffectiveApiKey = (key) => {
   return trimmed || DEFAULT_API_KEY
 }
 
+const parseModelList = (payload) => {
+  if (!Array.isArray(payload?.data)) return null
+
+  const models = payload.data
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item.id === 'string') return item.id
+      return ''
+    })
+    .filter(Boolean)
+
+  return Array.from(new Set(models))
+}
+
+const fetchAvailableModels = async (apiKey) => {
+  if (isMockKey(apiKey)) return null
+
+  const cacheKey = `${trimTrailingSlash(API_BASE_URL)}|${apiKey}`
+  const now = Date.now()
+  if (modelCache.cacheKey === cacheKey && now < modelCache.expiresAt && modelCache.models) {
+    return modelCache.models
+  }
+
+  try {
+    const response = await fetchWithTimeout(
+      getApiUrl('/models'),
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      15000,
+    )
+
+    if (!response.ok) return null
+
+    const data = await response.json().catch(() => null)
+    const models = parseModelList(data)
+    if (!models) return null
+
+    modelCache.cacheKey = cacheKey
+    modelCache.expiresAt = now + MODEL_CACHE_TTL
+    modelCache.models = models
+    return models
+  } catch (error) {
+    console.warn('[Model Discovery] 获取模型列表失败，将继续使用当前模型:', error?.message)
+    return null
+  }
+}
+
+const resolveModelForRequest = async (currentModel, apiKey) => {
+  const models = await fetchAvailableModels(apiKey)
+
+  // 模型发现失败时，不阻断请求（保持兼容）
+  if (!Array.isArray(models)) {
+    return currentModel
+  }
+
+  // 模型列表为空：明确提示用户先在 CPA-Dashboard 配置 provider
+  if (models.length === 0) {
+    throw new Error(
+      `${NO_AVAILABLE_MODELS_CODE}: 当前 API Key 没有可用模型，请先在 CPA-Dashboard 的 CLIProxyAPI 中配置并启用 Provider/模型别名。`,
+    )
+  }
+
+  if (models.includes(currentModel)) {
+    return currentModel
+  }
+
+  // 当前模型不可用时，自动切到第一个可用模型，避免用户手动排错
+  return models[0]
+}
+
 /**
  * 发起聊天补全请求（带重试机制）
  *
@@ -251,10 +350,19 @@ export const createChatCompletion = async (messages) => {
   // 获取设置 store 实例
   const settingStore = useSettingStore()
   const effectiveApiKey = getEffectiveApiKey(settingStore.settings.apiKey)
+  const resolvedModel = await resolveModelForRequest(settingStore.settings.model, effectiveApiKey)
+
+  // 自动修正为可用模型，并同步到设置
+  if (resolvedModel !== settingStore.settings.model) {
+    console.warn(
+      `[Model Auto-Switch] 当前模型 ${settingStore.settings.model} 不可用，已切换为 ${resolvedModel}`,
+    )
+    settingStore.settings.model = resolvedModel
+  }
 
   // 从设置 store 中读取当前模型与采样参数，组装请求体
   const payload = {
-    model: settingStore.settings.model, // 模型名称，如 'deepseek-ai/DeepSeek-R1'
+    model: resolvedModel, // 模型名称（若不可用会自动切换）
     messages, // 对话历史数组
     stream: settingStore.settings.stream, // 是否启用流式响应
     max_tokens: settingStore.settings.maxTokens, // 最大生成 token 数
@@ -300,7 +408,7 @@ export const createChatCompletion = async (messages) => {
 
       // 发起 HTTP 请求（带超时控制）
       const response = await fetchWithTimeout(
-        `${API_BASE_URL}/chat/completions`,
+        getApiUrl('/chat/completions'),
         options,
         RETRY_CONFIG.TIMEOUT,
       )
@@ -317,6 +425,11 @@ export const createChatCompletion = async (messages) => {
             errorMessage = `${errorMessage} - ${errorData.error.message}`
           } else if (errorData?.message) {
             errorMessage = `${errorMessage} - ${errorData.message}`
+          }
+
+          // 这类错误是配置问题，不是瞬时故障，标记后供上层输出更明确提示
+          if (typeof errorMessage === 'string' && errorMessage.includes('unknown provider for model')) {
+            errorMessage = `${errorMessage} [UNKNOWN_PROVIDER_FOR_MODEL]`
           }
         } catch {
           // 如果无法解析错误响应，使用默认错误信息

@@ -313,7 +313,17 @@ const handleSend = async (messageContent) => {
     let errorMessage = '抱歉，发生了一些错误，请稍后重试'
 
     if (error?.message) {
-      if (error.message.includes('HTTP error')) {
+      if (error.message.includes('NO_AVAILABLE_MODELS')) {
+        errorMessage =
+          '当前 API Key 在 CLIProxyAPI 中没有可用模型。请先在 CPA-Dashboard 配置并启用 Provider/模型别名，然后重试。'
+      } else if (
+        error.message.includes('unknown provider for model') ||
+        error.message.includes('UNKNOWN_PROVIDER_FOR_MODEL')
+      ) {
+        const modelMatch = error.message.match(/unknown provider for model ([^\s\]]+)/i)
+        const modelText = modelMatch?.[1] ? `（${modelMatch[1]}）` : ''
+        errorMessage = `模型${modelText}未在 CLIProxyAPI 中绑定可用 Provider，请到 CPA-Dashboard 检查模型映射后重试。`
+      } else if (error.message.includes('HTTP error')) {
         const statusMatch = error.message.match(/status: (\d+)/)
         if (statusMatch) {
           const status = statusMatch[1]
