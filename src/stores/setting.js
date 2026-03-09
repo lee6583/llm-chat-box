@@ -2,7 +2,7 @@
  * 设置状态管理 Store
  * 
  * 存放模型参数、API Key 等配置
- * 通过 Pinia 持久化插件自动保存到 localStorage，刷新页面后配置不丢失
+ * 通过 Pinia 持久化插件自动保存到 IndexedDB，刷新页面后配置不丢失
  */
 
 import { defineStore } from 'pinia'
@@ -16,7 +16,7 @@ import { ref } from 'vue'
  * 所有设置项都在 settings 对象中，便于统一管理和持久化
  * 
  * 持久化配置：
- * - persist: true - 启用持久化，数据自动保存到 localStorage
+ * - persist: true - 启用持久化，数据自动保存到 IndexedDB
  * - key: 'llm-setting' - 存储键名
  */
 export const useSettingStore = defineStore(
@@ -60,9 +60,9 @@ export const useSettingStore = defineStore(
   },
   {
     // Pinia 持久化插件配置
-    persist: true, // 启用持久化，数据自动保存到 localStorage
+    persist: true, // 启用持久化，数据自动保存到 IndexedDB
     // 默认存储键名：'llm-setting'
-    // 默认存储位置：localStorage
+    // 默认存储位置：IndexedDB
     // 注意：apiKey 等敏感信息也会被持久化，请确保在安全环境中使用
   },
 )
