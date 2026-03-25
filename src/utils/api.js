@@ -18,7 +18,7 @@ import { useSettingStore } from '@/stores/setting'
  *
  * @type {string}
  */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://cliproxyapi-hbg5.onrender.com/v1'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://zrocode.site/v1'
 
 /**
  * 默认代理 API Key（用于“开箱即用”）
@@ -27,7 +27,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://cliproxyapi-h
  * 用户在设置面板中手动填写 API Key 后会覆盖此默认值。
  */
 const DEFAULT_API_KEY =
-  import.meta.env.VITE_DEFAULT_API_KEY || import.meta.env.VITE_API_KEY || 'lyfzsx2005'
+  import.meta.env.VITE_DEFAULT_API_KEY || import.meta.env.VITE_API_KEY || ''
 
 // 代理服务返回“没有可用模型”时使用的错误标识
 const NO_AVAILABLE_MODELS_CODE = 'NO_AVAILABLE_MODELS'
@@ -60,6 +60,54 @@ const RETRY_CONFIG = {
 
 const trimTrailingSlash = (value) => value.replace(/\/+$/, '')
 const getApiUrl = (path) => `${trimTrailingSlash(API_BASE_URL)}${path}`
+
+const getCompletionTokens = (usage) => {
+  if (!usage) return 0
+  if (typeof usage.completion_tokens === 'number') return usage.completion_tokens
+  if (typeof usage.output_tokens === 'number') return usage.output_tokens
+  if (typeof usage.completionTokens === 'number') return usage.completionTokens
+  return 0
+}
+
+const toResponsesInputMessage = (message) => {
+  if (!message || typeof message !== 'object') return message
+  const role = message.role
+  const content = message.content
+
+  // Responses API supports `input` as a list of messages. For multimodal, `content` can be an array
+  // of input items (e.g. {type:"input_text", text}, {type:"input_image", image_url}).
+  if (typeof content === 'string') {
+    return { role, content }
+  }
+
+  if (!Array.isArray(content)) {
+    return { role, content: String(content ?? '') }
+  }
+
+  const mapped = content
+    .map((part) => {
+      if (!part || typeof part !== 'object') return null
+      if (part.type === 'text') {
+        return { type: 'input_text', text: part.text ?? '' }
+      }
+      if (part.type === 'image_url') {
+        const url = part.image_url?.url
+        if (!url) return null
+        return { type: 'input_image', image_url: url }
+      }
+      // Pass-through if it's already in a supported/compatible format.
+      if (typeof part.type === 'string') return part
+      return null
+    })
+    .filter(Boolean)
+
+  // Prefer array content when we have any multimodal parts; otherwise fall back to a merged string.
+  if (mapped.length > 0) {
+    return { role, content: mapped }
+  }
+
+  return { role, content: '' }
+}
 
 /**
  * 判断错误是否可重试
@@ -196,20 +244,21 @@ const isMockKey = (key) => typeof key === 'string' && key.startsWith('mock-')
  */
 const createMockResponse = (isStream) => {
   if (isStream) {
-    // 模拟 SSE 流式响应，方便在无真实 Key 时演示前端效果
-    // 构造符合 SSE 格式的响应体
+    // 模拟 Responses API 的 SSE 流式响应，方便在无真实 Key 时演示前端效果
     const body = [
-      `data: ${JSON.stringify({ choices: [{ delta: { content: '这是 Mock 流式响应片段1。' } }] })}\n\n`,
-      `data: ${JSON.stringify({ choices: [{ delta: { content: '这是 Mock 流式响应片段2。' } }] })}\n\n`,
-      'data: [DONE]\n\n', // 流结束标记
+      `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: '这是 Mock 流式响应片段1。' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: '这是 Mock 流式响应片段2。' })}\n\n`,
+      `data: ${JSON.stringify({
+        type: 'response.completed',
+        response: { usage: { output_tokens: 10 } },
+      })}\n\n`,
     ].join('')
-    // 返回符合 SSE 格式的 Response 对象
     return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
   }
-  // 非流式模式下直接返回一次性完整响应
+  // 非流式模式下直接返回一次性完整响应（Responses API 风格）
   return {
-    choices: [{ message: { content: '这是 Mock 完整响应。', reasoning_content: '' } }],
-    usage: { completion_tokens: 10 },
+    output_text: '这是 Mock 完整响应。',
+    usage: { output_tokens: 10 },
     speed: 5, // Mock 速度值
   }
 }
@@ -325,12 +374,11 @@ const resolveModelForRequest = async (currentModel, apiKey) => {
  * @description
  * 请求参数说明：
  * - model: 模型名称（从设置 store 读取）
- * - messages: 对话历史
+ * - input: 对话历史（Responses API 形式）
  * - stream: 是否流式响应
- * - max_tokens: 最大生成 token 数
+ * - max_output_tokens: 最大输出 token 数
  * - temperature: 温度参数（0-2），控制随机性
  * - top_p: 核采样阈值（0-1）
- * - top_k: Top-K 采样参数
  *
  * 重试策略：
  * - 最大重试次数：3 次
@@ -350,6 +398,9 @@ export const createChatCompletion = async (messages) => {
   // 获取设置 store 实例
   const settingStore = useSettingStore()
   const effectiveApiKey = getEffectiveApiKey(settingStore.settings.apiKey)
+  if (!effectiveApiKey && !isMockKey(effectiveApiKey)) {
+    throw new Error('API Key 为空：请在设置面板填写 API Key（或使用 mock- 开头的 Key 进入演示模式）')
+  }
   const resolvedModel = await resolveModelForRequest(settingStore.settings.model, effectiveApiKey)
 
   // 自动修正为可用模型，并同步到设置
@@ -363,16 +414,11 @@ export const createChatCompletion = async (messages) => {
   // 从设置 store 中读取当前模型与采样参数，组装请求体
   const payload = {
     model: resolvedModel, // 模型名称（若不可用会自动切换）
-    messages, // 对话历史数组
+    input: Array.isArray(messages) ? messages.map(toResponsesInputMessage) : messages, // Responses API 输入
     stream: settingStore.settings.stream, // 是否启用流式响应
-    max_tokens: settingStore.settings.maxTokens, // 最大生成 token 数
-    temperature: settingStore.settings.temperature, // 温度参数（0-2），值越高越随机
+    max_output_tokens: settingStore.settings.maxTokens, // Responses API: 最大输出 token 数
+    temperature: settingStore.settings.temperature, // 温度参数（0-2）
     top_p: settingStore.settings.topP, // 核采样阈值（0-1）
-  }
-
-  // 仅在 siliconflow 接口下透传 top_k，避免 OpenAI 兼容接口参数校验失败
-  if (API_BASE_URL.includes('siliconflow.cn')) {
-    payload.top_k = settingStore.settings.topK
   }
 
   // 构造请求选项
@@ -408,7 +454,7 @@ export const createChatCompletion = async (messages) => {
 
       // 发起 HTTP 请求（带超时控制）
       const response = await fetchWithTimeout(
-        getApiUrl('/chat/completions'),
+        getApiUrl('/responses'),
         options,
         RETRY_CONFIG.TIMEOUT,
       )
@@ -457,8 +503,9 @@ export const createChatCompletion = async (messages) => {
         const data = await response.json()
         // 计算响应耗时（秒）
         const duration = (Date.now() - startTime) / 1000
-        // 计算响应速度：tokens / 耗时（秒），保留 2 位小数toFixed(2)，多数LLM 接口 返回数据 data 的usage里包含了使用了多少tokens
-        data.speed = (data.usage.completion_tokens / duration).toFixed(2)
+        const tokens = getCompletionTokens(data.usage)
+        // 计算响应速度：tokens / 耗时（秒），保留 2 位小数
+        data.speed = duration > 0 && tokens > 0 ? (tokens / duration).toFixed(2) : '0'
         return data
       }
     } catch (error) {

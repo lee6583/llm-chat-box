@@ -172,7 +172,10 @@ defineExpose({
         <div class="setting-label-row">
           <div class="label-with-tooltip">
             <span>API Key</span>
-            <el-tooltip content="留空时使用内置代理 Key；填写后优先使用你的 Key" placement="top">
+            <el-tooltip
+              content="建议填写你自己的 Key。也可通过 VITE_DEFAULT_API_KEY 注入默认 Key（会打包进前端并公开可见）"
+              placement="top"
+            >
               <el-icon><QuestionFilled /></el-icon>
             </el-tooltip>
           </div>
@@ -180,10 +183,10 @@ defineExpose({
         <el-input
           v-model="settingStore.settings.apiKey"
           type="password"
-          placeholder="可选：输入你的 API Key 覆盖内置 Key"
+          placeholder="输入你的 API Key"
           show-password
         />
-        <div class="hint-text">留空即可直接对话；填写后会使用你的 Key 并可切换/自定义模型。</div>
+        <div class="hint-text">留空将无法请求接口；填写后会使用你的 Key 并可切换/自定义模型。</div>
       </div>
 
       <!-- Max Tokens -->
