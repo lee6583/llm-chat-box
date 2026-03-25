@@ -5,6 +5,9 @@
   # 构建输出目录（Vite 默认输出到 dist）
   publish = "dist"
 
+[functions]
+  directory = "netlify/functions"
+
 # 环境变量（如果需要，可以在 Netlify 控制台设置）
 [build.environment]
   NODE_VERSION = "20"

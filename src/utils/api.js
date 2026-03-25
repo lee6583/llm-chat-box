@@ -1,5 +1,8 @@
 import { useSettingStore } from '@/stores/setting'
 
+const PROXY_RESPONSES_URL = '/.netlify/functions/responses'
+const PROXY_MODELS_URL = '/.netlify/functions/models'
+
 /**
  * LLM 接口封装模块
  *
@@ -301,8 +304,9 @@ const fetchAvailableModels = async (apiKey) => {
   if (isMockKey(apiKey)) return null
   const settingStore = useSettingStore()
   const apiBaseUrl = getApiBaseUrl(settingStore)
+  const useProxy = !apiKey
 
-  const cacheKey = `${trimTrailingSlash(apiBaseUrl)}|${apiKey}`
+  const cacheKey = useProxy ? `proxy|server-key` : `${trimTrailingSlash(apiBaseUrl)}|${apiKey}`
   const now = Date.now()
   if (modelCache.cacheKey === cacheKey && now < modelCache.expiresAt && modelCache.models) {
     return modelCache.models
@@ -317,7 +321,7 @@ const fetchAvailableModels = async (apiKey) => {
     }
 
     const response = await fetchWithTimeout(
-      getApiUrl(apiBaseUrl, '/models'),
+      useProxy ? PROXY_MODELS_URL : getApiUrl(apiBaseUrl, '/models'),
       {
         method: 'GET',
         headers,
@@ -409,6 +413,7 @@ export const createChatCompletion = async (messages) => {
   const settingStore = useSettingStore()
   const apiBaseUrl = getApiBaseUrl(settingStore)
   const effectiveApiKey = getEffectiveApiKey(settingStore.settings.apiKey)
+  const useProxy = !effectiveApiKey
   const resolvedModel = await resolveModelForRequest(settingStore.settings.model, effectiveApiKey)
 
   // 自动修正为可用模型，并同步到设置
@@ -437,7 +442,7 @@ export const createChatCompletion = async (messages) => {
     },
     body: JSON.stringify(payload), // 将请求体序列化为 JSON 字符串
   }
-  if (effectiveApiKey) {
+  if (!useProxy && effectiveApiKey) {
     // 使用 Bearer Token 传递 API Key，兼容大部分 LLM 网关（OpenAI 格式）
     options.headers.Authorization = `Bearer ${effectiveApiKey}`
   }
@@ -464,7 +469,7 @@ export const createChatCompletion = async (messages) => {
 
       // 发起 HTTP 请求（带超时控制）
       const response = await fetchWithTimeout(
-        getApiUrl(apiBaseUrl, '/responses'),
+        useProxy ? PROXY_RESPONSES_URL : getApiUrl(apiBaseUrl, '/responses'),
         options,
         RETRY_CONFIG.TIMEOUT,
       )
