@@ -42,7 +42,11 @@ pnpm preview
 
 4. **环境变量（可选）**
    - 如果项目需要环境变量，在 "Site settings" → "Environment variables" 中添加
-   - 例如：`VITE_API_BASE_URL`、`VITE_API_KEY` 等
+   - 如果你希望“打开网页就能直接对话”且不在前端暴露密钥：
+   - 设置 `ZROCODE_API_KEY`（服务端代理使用）
+   - 可选设置 `ZROCODE_BASE_URL`，例如 `https://zrocode.site/v1`
+   - 前端会在用户未填写 API Key 时自动走 `/.netlify/functions/*` 代理
+   - 仍可选：`VITE_API_BASE_URL`（前端直连时使用）、`VITE_DEFAULT_API_KEY`（不推荐，会打包进前端公开可见）
 
 5. **部署**
    - 点击 "Deploy site"
@@ -146,4 +150,3 @@ pnpm preview
 - [Netlify 官方文档](https://docs.netlify.com/)
 - [Vite 部署指南](https://vitejs.dev/guide/static-deploy.html#netlify)
 - [Vue Router 部署指南](https://router.vuejs.org/guide/essentials/history-mode.html)
-
