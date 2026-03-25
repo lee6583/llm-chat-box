@@ -347,7 +347,7 @@ const handleSend = async (messageContent) => {
         if (statusMatch) {
           const status = statusMatch[1]
           if (status === '401') {
-            errorMessage = 'API Key 无效，请在设置中检查您的 API Key'
+            errorMessage = '未授权 (401)：请检查 API Key 是否填写正确，以及 API Base URL 是否指向正确网关'
           } else if (status === '429') {
             errorMessage = '请求过于频繁，请稍后再试'
           } else if (status === '500' || status === '502' || status === '503') {

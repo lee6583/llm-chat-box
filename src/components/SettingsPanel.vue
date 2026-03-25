@@ -189,6 +189,27 @@ defineExpose({
         <div class="hint-text">留空将无法请求接口；填写后会使用你的 Key 并可切换/自定义模型。</div>
       </div>
 
+      <!-- API Base URL -->
+      <div class="setting-item">
+        <div class="setting-label-row">
+          <div class="label-with-tooltip">
+            <span>API Base URL</span>
+            <el-tooltip
+              content="可选：留空使用内置默认/环境变量。示例：https://zrocode.site/v1"
+              placement="top"
+            >
+              <el-icon><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </div>
+        </div>
+        <el-input
+          v-model="settingStore.settings.apiBaseUrl"
+          placeholder="可选：例如 https://zrocode.site/v1"
+          clearable
+        />
+        <div class="hint-text">如果你遇到 401/404，先确认这里指向正确的网关地址。</div>
+      </div>
+
       <!-- Max Tokens -->
       <div class="setting-item">
         <div class="setting-label">

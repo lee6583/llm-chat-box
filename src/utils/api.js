@@ -9,16 +9,20 @@ import { useSettingStore } from '@/stores/setting'
  */
 
 /**
- * API 基础 URL
+ * 获取 API 基础 URL
  *
- * 允许通过环境变量 VITE_API_BASE_URL 覆盖，便于：
- * - 指向本地 mock 服务进行开发调试
- * - 使用网关代理避免跨域问题
- * - 切换不同的 API 服务提供商
- *
- * @type {string}
+ * 优先级：
+ * 1. 用户在设置面板填写的 apiBaseUrl
+ * 2. 环境变量 VITE_API_BASE_URL
+ * 3. 内置默认值
  */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://zrocode.site/v1'
+const getApiBaseUrl = (settingStore) => {
+  const fromSetting = (settingStore?.settings?.apiBaseUrl || '').trim()
+  if (fromSetting) return fromSetting
+  const fromEnv = (import.meta.env.VITE_API_BASE_URL || '').trim()
+  if (fromEnv) return fromEnv
+  return 'https://zrocode.site/v1'
+}
 
 /**
  * 默认代理 API Key（用于“开箱即用”）
@@ -59,7 +63,7 @@ const RETRY_CONFIG = {
 }
 
 const trimTrailingSlash = (value) => value.replace(/\/+$/, '')
-const getApiUrl = (path) => `${trimTrailingSlash(API_BASE_URL)}${path}`
+const getApiUrl = (baseUrl, path) => `${trimTrailingSlash(baseUrl)}${path}`
 
 const getCompletionTokens = (usage) => {
   if (!usage) return 0
@@ -295,22 +299,28 @@ const parseModelList = (payload) => {
 
 const fetchAvailableModels = async (apiKey) => {
   if (isMockKey(apiKey)) return null
+  const settingStore = useSettingStore()
+  const apiBaseUrl = getApiBaseUrl(settingStore)
 
-  const cacheKey = `${trimTrailingSlash(API_BASE_URL)}|${apiKey}`
+  const cacheKey = `${trimTrailingSlash(apiBaseUrl)}|${apiKey}`
   const now = Date.now()
   if (modelCache.cacheKey === cacheKey && now < modelCache.expiresAt && modelCache.models) {
     return modelCache.models
   }
 
   try {
+    const headers = {
+      'Content-Type': 'application/json',
+    }
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`
+    }
+
     const response = await fetchWithTimeout(
-      getApiUrl('/models'),
+      getApiUrl(apiBaseUrl, '/models'),
       {
         method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
       },
       15000,
     )
@@ -397,10 +407,8 @@ const resolveModelForRequest = async (currentModel, apiKey) => {
 export const createChatCompletion = async (messages) => {
   // 获取设置 store 实例
   const settingStore = useSettingStore()
+  const apiBaseUrl = getApiBaseUrl(settingStore)
   const effectiveApiKey = getEffectiveApiKey(settingStore.settings.apiKey)
-  if (!effectiveApiKey && !isMockKey(effectiveApiKey)) {
-    throw new Error('API Key 为空：请在设置面板填写 API Key（或使用 mock- 开头的 Key 进入演示模式）')
-  }
   const resolvedModel = await resolveModelForRequest(settingStore.settings.model, effectiveApiKey)
 
   // 自动修正为可用模型，并同步到设置
@@ -425,11 +433,13 @@ export const createChatCompletion = async (messages) => {
   const options = {
     method: 'POST', // HTTP 方法
     headers: {
-      // 使用 Bearer Token 传递 API Key，兼容大部分 LLM 网关（OpenAI 格式），Authorization标准请求头，放身份凭证
-      Authorization: `Bearer ${effectiveApiKey}`,
       'Content-Type': 'application/json', // 请求体为 JSON
     },
     body: JSON.stringify(payload), // 将请求体序列化为 JSON 字符串
+  }
+  if (effectiveApiKey) {
+    // 使用 Bearer Token 传递 API Key，兼容大部分 LLM 网关（OpenAI 格式）
+    options.headers.Authorization = `Bearer ${effectiveApiKey}`
   }
 
   // Mock 分支：以 mock- 开头的 key 直接返回假数据，不请求真实接口
@@ -454,7 +464,7 @@ export const createChatCompletion = async (messages) => {
 
       // 发起 HTTP 请求（带超时控制）
       const response = await fetchWithTimeout(
-        getApiUrl('/responses'),
+        getApiUrl(apiBaseUrl, '/responses'),
         options,
         RETRY_CONFIG.TIMEOUT,
       )
@@ -466,11 +476,19 @@ export const createChatCompletion = async (messages) => {
         // 尝试读取错误响应体（如果有）
         let errorMessage = `HTTP error! status: ${response.status}`
         try {
-          const errorData = await response.json().catch(() => null)
+          const contentType = response.headers.get('content-type') || ''
+          const errorData = contentType.includes('application/json')
+            ? await response.json().catch(() => null)
+            : null
           if (errorData?.error?.message) {
             errorMessage = `${errorMessage} - ${errorData.error.message}`
           } else if (errorData?.message) {
             errorMessage = `${errorMessage} - ${errorData.message}`
+          } else if (!errorData) {
+            const text = await response.text().catch(() => '')
+            if (text) {
+              errorMessage = `${errorMessage} - ${text.slice(0, 300)}`
+            }
           }
 
           // 这类错误是配置问题，不是瞬时故障，标记后供上层输出更明确提示
@@ -495,12 +513,26 @@ export const createChatCompletion = async (messages) => {
 
       // 请求成功，根据流式/非流式模式返回不同格式的数据
       if (settingStore.settings.stream) {
+        // 某些网关在 stream=true 时仍会返回 JSON 错误，这里先兜底解析并抛出，避免前端“读流但没有任何内容”
+        const contentType = response.headers.get('content-type') || ''
+        if (response.ok && contentType.includes('application/json')) {
+          const data = await response.json().catch(() => null)
+          if (data?.error?.message) {
+            throw new Error(data.error.message)
+          }
+          if (data?.message) {
+            throw new Error(data.message)
+          }
+        }
         // 流式响应：直接把 Response 返回给上层，由 messageHandler 负责读取处理流
         // 注意：流式响应中也可能包含错误信息（在 SSE 数据中），由 messageHandler 处理
         return response
       } else {
         // 非流式响应：一次性解析 JSON，并计算 tokens/s 速度指标，返回解析后的数据对象
         const data = await response.json()
+        if (data?.error?.message) {
+          throw new Error(data.error.message)
+        }
         // 计算响应耗时（秒）
         const duration = (Date.now() - startTime) / 1000
         const tokens = getCompletionTokens(data.usage)

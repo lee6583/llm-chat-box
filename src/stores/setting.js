@@ -45,6 +45,7 @@ export const useSettingStore = defineStore(
      */
     const settings = ref({
       model: 'gpt-5.3-codex', // 默认模型（走内置代理 API）
+      apiBaseUrl: '', // 可选：留空使用环境变量/内置默认；填写后优先使用该 Base URL
       apiKey: '', // 可选：留空时使用内置代理 key；手动填写时优先使用用户输入
       stream: true, // 是否开启流式响应（默认开启，提供更好的用户体验）
       maxTokens: 4096, // 每次回答的最大 token 数（默认值，会根据模型自动调整）
