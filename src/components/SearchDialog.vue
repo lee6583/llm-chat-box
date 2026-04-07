@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch, nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import ChatMessage from './ChatMessage.vue'
 import { messageHandler } from '@/utils/messageHandler'
 import { createChatCompletion } from '@/utils/api'
@@ -9,22 +10,17 @@ const searchText = ref('')
 const messages = ref([])
 const isLoading = ref(false)
 const settingStore = useSettingStore()
+const messagesContainer = ref(null)
+const activeController = ref(null)
 
-// 模拟一个初始的 AI 消息
-const aiMessage = 'Hi, 我是你的AI小助手，有什么问题都可以问我！'
-
-// 模拟建议的提示词
+const aiMessage = '想快速试一下？这里适合做单轮提问、查报错、润色文案或生成小段内容。'
 const suggestedPrompts = [
-  '如何快速上手Vue3框架',
-  '入职字节跳动难吗？',
-  '前端如何实现弹性布局',
-  '喝酒脸红是会喝酒的表现吗？',
+  '把这段需求拆成开发任务清单',
+  '解释这个报错，并给我排查步骤',
+  '帮我润色一段产品介绍文案',
+  '总结一篇文章的重点并列出行动项',
 ]
 
-// 获取消息容器
-const messagesContainer = ref(null)
-
-// 监听消息变化，滚动到底部
 watch(
   messages,
   () => {
@@ -37,99 +33,93 @@ watch(
   { deep: true },
 )
 
-// 处理发送消息
-const handleSend = async () => {
-  if (!searchText.value.trim() || isLoading.value) return
+const isAbortError = (error) => {
+  const message = String(error?.message || '').toLowerCase()
+  return error?.name === 'AbortError' || message.includes('request_aborted') || message.includes('aborted')
+}
+
+const buildFriendlyError = (error) => {
+  if (isAbortError(error)) return '已停止当前回复。'
+  const message = String(error?.message || '')
+  if (message.includes('401')) return '鉴权失败，请检查设置中的 API Key 或网关地址。'
+  if (message.includes('429')) return '请求过于频繁，请稍后再试。'
+  if (message.includes('network') || message.includes('Failed to fetch')) return '网络连接失败，请稍后重试。'
+  return '抱歉，发生了一些错误，请稍后重试。'
+}
+
+const startRequest = async (messagesForAPI) => {
+  const controller = new AbortController()
+  activeController.value = controller
+  isLoading.value = true
 
   try {
-    // 设置loading状态
-    isLoading.value = true
+    const response = await createChatCompletion(messagesForAPI, {
+      signal: controller.signal,
+      onModelResolved: ({ previousModel, resolvedModel }) => {
+        ElMessage.warning(`当前模型 ${previousModel} 不可用，已自动切换为 ${resolvedModel}`)
+      },
+    })
 
-    // 添加用户消息
-    messages.value.push(messageHandler.formatMessage('user', searchText.value.trim()))
-    messages.value.push(messageHandler.formatMessage('assistant', '', '')) // 添加空的 reasoning_content
-
-    // 获取最后一条消息
     const lastMessage = messages.value[messages.value.length - 1]
-    lastMessage.loading = true
-
-    // 清空输入框
-    searchText.value = ''
-
-    // 调用API获取回复
-    const messagesForAPI = messages.value.map(({ role, content }) => ({ role, content }))
-    const response = await createChatCompletion(messagesForAPI)
-
-    // 使用封装的响应处理函数
     await messageHandler.handleResponse(
       response,
       settingStore.settings.stream,
       (content, reasoning_content, tokens, speed) => {
-        // 添加 reasoning_content 参数
         lastMessage.content = content
-        lastMessage.reasoning_content = reasoning_content // 更新 reasoning_content
+        lastMessage.reasoning_content = reasoning_content
         lastMessage.completion_tokens = tokens
         lastMessage.speed = speed
       },
     )
   } catch (error) {
-    console.error('Failed to send message:', error)
     const lastMessage = messages.value[messages.value.length - 1]
-    lastMessage.content = '抱歉，发生了一些错误，请稍后重试。'
+    if (controller.signal.aborted || isAbortError(error)) {
+      lastMessage.content = lastMessage.content || '已停止当前回复。'
+    } else {
+      lastMessage.status = 'error'
+      lastMessage.errorTitle = '快速问答失败'
+      lastMessage.errorDetail = buildFriendlyError(error)
+      lastMessage.content = ''
+    }
   } finally {
-    // 重置loading状态
-    isLoading.value = false
     const lastMessage = messages.value[messages.value.length - 1]
-    lastMessage.loading = false
+    if (lastMessage) lastMessage.loading = false
+    isLoading.value = false
+    activeController.value = null
   }
 }
 
-// 处理重新生成
+const handleSend = async (prompt = searchText.value) => {
+  const normalized = prompt.trim()
+  if (!normalized || isLoading.value) return
+
+  messages.value.push(messageHandler.formatMessage('user', normalized))
+  messages.value.push(messageHandler.formatMessage('assistant', '', ''))
+  const lastMessage = messages.value[messages.value.length - 1]
+  lastMessage.loading = true
+  searchText.value = ''
+
+  await startRequest(messages.value.map(({ role, content }) => ({ role, content })))
+}
+
 const handleRegenerate = async () => {
-  try {
-    // 获取最后一条用户消息
-    const lastUserMessage = messages.value[messages.value.length - 2]
-    // 删除最后两条消息（用户消息和AI回复）
-    messages.value.splice(-2, 2)
-    // 重新发送最后一条用户消息，但使用新的 id
-    const newUserMessage = {
-      ...messageHandler.formatMessage('user', lastUserMessage.content),
-      id: Date.now(),
-    }
-    messages.value.push(newUserMessage)
-    messages.value.push({
-      ...messageHandler.formatMessage('assistant', '', ''), // 添加空的 reasoning_content
-      id: Date.now() + 1,
-    })
+  if (messages.value.length < 2 || isLoading.value) return
+  const lastUserMessage = messages.value[messages.value.length - 2]
+  messages.value.splice(-2, 2)
+  await handleSend(lastUserMessage.content)
+}
 
-    // 获取最后一条消息
-    const lastMessage = messages.value[messages.value.length - 1]
-    lastMessage.loading = true
+const handleRetry = async () => {
+  if (messages.value.length < 2 || isLoading.value) return
+  messages.value.splice(-1, 1)
+  messages.value.push(messageHandler.formatMessage('assistant', '', ''))
+  const lastMessage = messages.value[messages.value.length - 1]
+  lastMessage.loading = true
+  await startRequest(messages.value.slice(0, -1).map(({ role, content }) => ({ role, content })))
+}
 
-    // 调用API获取回复
-    const messagesForAPI = messages.value.map(({ role, content }) => ({ role, content }))
-    const response = await createChatCompletion(messagesForAPI)
-
-    // 使用封装的响应处理函数
-    await messageHandler.handleResponse(
-      response,
-      settingStore.settings.stream,
-      (content, reasoning_content, tokens, speed) => {
-        // 添加 reasoning_content 参数
-        lastMessage.content = content
-        lastMessage.reasoning_content = reasoning_content // 更新 reasoning_content
-        lastMessage.completion_tokens = tokens
-        lastMessage.speed = speed
-      },
-    )
-  } catch (error) {
-    console.error('Failed to regenerate message:', error)
-    const lastMessage = messages.value[messages.value.length - 1]
-    lastMessage.content = '抱歉，发生了一些错误，请稍后重试。'
-  } finally {
-    const lastMessage = messages.value[messages.value.length - 1]
-    lastMessage.loading = false
-  }
+const handleStop = () => {
+  activeController.value?.abort()
 }
 </script>
 
@@ -138,35 +128,29 @@ const handleRegenerate = async () => {
     <div class="search-header">
       <div class="search-input">
         <input
-          type="text"
           v-model="searchText"
-          placeholder="提问"
+          type="text"
+          placeholder="输入一个问题，回车立即发送"
           autofocus
-          @keydown.enter.prevent="handleSend"
+          @keydown.enter.prevent="handleSend()"
         />
-        <button class="action-btn" @click="handleSend" :disabled="isLoading">
-          <img src="@/assets/photo/回车.png" alt="enter" />
-        </button>
+        <button v-if="isLoading" class="action-btn stop" type="button" @click="handleStop">停止</button>
+        <button v-else class="action-btn" type="button" @click="handleSend()">发送</button>
       </div>
     </div>
 
-    <!-- 对话内容部分 -->
     <div class="dialog-content" ref="messagesContainer">
       <template v-if="messages.length === 0">
-        <!-- 初始 AI 消息 -->
-        <div class="initial-message">
-          {{ aiMessage }}
-        </div>
-
-        <!-- 建议提示词 -->
+        <div class="initial-message">{{ aiMessage }}</div>
         <div class="suggested-prompts">
-          <div class="prompt-title">建议提示词</div>
+          <div class="prompt-title">一键试试这些问题</div>
           <div class="prompt-list">
             <button
               v-for="prompt in suggestedPrompts"
               :key="prompt"
               class="prompt-item"
-              @click="searchText = prompt"
+              type="button"
+              @click="handleSend(prompt)"
             >
               {{ prompt }}
             </button>
@@ -175,13 +159,14 @@ const handleRegenerate = async () => {
       </template>
 
       <template v-else>
-        <!-- 对话消息列表 -->
         <ChatMessage
           v-for="(message, index) in messages"
           :key="message.id"
           :message="message"
           :is-last-assistant-message="index === messages.length - 1 && message.role === 'assistant'"
           @regenerate="handleRegenerate"
+          @retry="handleRetry"
+          @open-settings="ElMessage.info('请前往聊天页中的设置面板检查模型或 API Key')"
         />
       </template>
     </div>
@@ -190,126 +175,98 @@ const handleRegenerate = async () => {
 
 <style lang="scss" scoped>
 .search-dialog {
-  max-width: 640px; // 设置最大宽度
-  min-width: 320px; // 设置最小宽度
-  max-height: 600px;
+  max-width: 720px;
+  min-width: 320px;
+  max-height: min(80vh, 720px);
   background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-radius: 18px;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.16);
   overflow: hidden;
-  display: flex; // 使用弹性布局
-  flex-direction: column; // 垂直排列
+  display: flex;
+  flex-direction: column;
+}
 
-  .search-header {
-    flex-shrink: 0; // 防止头部压缩
-    padding: 12px;
-    border-bottom: 1px solid #eaeaea;
+.search-header {
+  padding: 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
 
-    .search-input {
-      width: 100%;
-      height: 40px;
-      padding: 0 12px;
-      display: flex;
-      align-items: center;
-      position: relative;
+.search-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 0 12px;
+  height: 48px;
 
-      input {
-        flex: 1; // 输入框占据剩余空间
-        height: 100%;
-        border: none;
-        outline: none;
-        background: none;
-        font-size: 1rem;
-        color: #000;
-        padding-right: 40px;
-
-        &::placeholder {
-          color: #999;
-        }
-      }
-
-      .action-btn {
-        position: absolute;
-        right: 8px;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 28px;
-        height: 28px;
-        border: none;
-        background: none;
-        padding: 0;
-        cursor: pointer;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: background-color 0.3s;
-
-        img {
-          width: 16px;
-          height: 16px;
-        }
-
-        &:hover {
-          background-color: rgba(0, 0, 0, 0.05);
-        }
-      }
-    }
+  input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: none;
+    font-size: 15px;
   }
 
-  .dialog-content {
-    flex: 1; // 对话内容区域占据剩余空间
-    padding: 12px;
-    overflow-y: auto; // 允许垂直滚动
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+  .action-btn {
+    border: none;
+    background: #2563eb;
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 14px;
+    cursor: pointer;
 
-    .initial-message {
-      padding: 12px 12px;
-      color: #000;
-      font-size: 14px;
-      line-height: 1.5;
-      display: flex;
-      align-items: center;
+    &.stop {
+      background: #ef4444;
     }
+  }
+}
 
-    .suggested-prompts {
-      margin-top: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+.dialog-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #f8fafc;
+}
 
-      .prompt-title {
-        padding-left: 12px;
-        font-size: 12px;
-        color: #666;
-      }
+.initial-message {
+  padding: 4px 4px 12px;
+  color: #334155;
+  line-height: 1.7;
+}
 
-      .prompt-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
+.suggested-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-        .prompt-item {
-          text-align: left;
-          padding: 8px 12px;
-          background: none;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-          color: #000;
-          cursor: pointer;
-          transition: background-color 0.2s;
-          display: flex;
-          align-items: center;
+.prompt-title {
+  font-size: 13px;
+  color: #64748b;
+}
 
-          &:hover {
-            background-color: #f5f5f5;
-          }
-        }
-      }
-    }
+.prompt-list {
+  display: grid;
+  gap: 10px;
+}
+
+.prompt-item {
+  text-align: left;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  color: #0f172a;
+  cursor: pointer;
+  transition: 0.2s ease;
+
+  &:hover {
+    border-color: #bfdbfe;
+    box-shadow: 0 10px 20px rgba(37, 99, 235, 0.08);
   }
 }
 </style>

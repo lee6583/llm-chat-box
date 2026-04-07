@@ -1,28 +1,35 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import DialogEdit from '@/components/DialogEdit.vue'
 
 const isVisible = ref(false)
+const keyword = ref('')
 const chatStore = useChatStore()
 const dialogEdit = ref(null)
 
-// 处理点击事件
+const filteredConversations = computed(() => {
+  const query = keyword.value.trim().toLowerCase()
+  if (!query) return chatStore.conversations
+  return chatStore.conversations.filter((conversation) => {
+    const title = String(conversation.title || '').toLowerCase()
+    const preview = String(chatStore.getConversationPreview(conversation) || '').toLowerCase()
+    return title.includes(query) || preview.includes(query)
+  })
+})
+
 const handleClickOutside = (event) => {
   const wrapper = document.querySelector('.popup-wrapper')
-  // 如果点击的位置不在弹出框内部，则关闭弹出框
   if (wrapper && !wrapper.contains(event.target)) {
     isVisible.value = false
   }
 }
 
-// 组件挂载时添加点击事件监听
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
 })
 
-// 组件卸载时移除点击事件监听
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
 })
@@ -31,24 +38,16 @@ const toggle = () => {
   isVisible.value = !isVisible.value
 }
 
-// 创建新对话
 const handleNewChat = () => {
   chatStore.createConversation()
   isVisible.value = false
 }
 
-// 切换对话
 const handleSwitchChat = (conversationId) => {
   chatStore.switchConversation(conversationId)
   isVisible.value = false
 }
 
-// 格式化标题
-const formatTitle = (title) => {
-  return title.length > 4 ? title.slice(0, 4) + '...' : title
-}
-
-// 导出方法供父组件调用
 defineExpose({
   toggle,
 })
@@ -56,54 +55,63 @@ defineExpose({
 
 <template>
   <div class="popup-wrapper">
-    <button class="action-btn" @click="toggle">
-      <img src="@/assets/photo/弹出框.png" alt="" />
+    <button class="action-btn" type="button" aria-label="打开历史对话列表" @click="toggle">
+      <img src="@/assets/photo/弹出框.png" alt="菜单" />
     </button>
-    <!-- 弹出框 -->
+
     <Transition
       enter-active-class="animate__animated animate__fadeInLeft"
       leave-active-class="animate__animated animate__fadeOutLeft"
     >
-      <div class="popup-menu" v-show="isVisible">
-        <div class="menu-section">
+      <div v-show="isVisible" class="popup-menu">
+        <div class="menu-top">
           <el-button class="new-chat-btn" :icon="Plus" @click="handleNewChat">新对话</el-button>
+          <div class="search-box">
+            <el-icon><Search /></el-icon>
+            <input v-model="keyword" type="text" placeholder="搜索对话或内容" aria-label="搜索历史对话" />
+          </div>
         </div>
-        <div class="divider"></div>
-        <div class="menu-section">
-          <div class="section-title">历史对话</div>
-          <div class="history-list">
-            <div
-              v-for="conversation in chatStore.conversations"
-              :key="conversation.id"
-              class="menu-item"
-              :class="{ active: conversation.id === chatStore.currentConversationId }"
-              @click="handleSwitchChat(conversation.id)"
-            >
-              <div class="item-content">
-                <img src="@/assets/photo/对话.png" alt="" />
-                <span :title="conversation.title">{{ formatTitle(conversation.title) }}</span>
+
+        <div class="section-title">历史对话</div>
+        <div v-if="filteredConversations.length > 0" class="history-list">
+          <div
+            v-for="conversation in filteredConversations"
+            :key="conversation.id"
+            class="menu-item"
+            :class="{ active: conversation.id === chatStore.currentConversationId }"
+            @click="handleSwitchChat(conversation.id)"
+          >
+            <div class="item-main">
+              <div class="item-row">
+                <span class="item-title" :title="conversation.title">{{ conversation.title }}</span>
+                <span class="item-time">{{ chatStore.getConversationTimeText(conversation) }}</span>
               </div>
-              <div class="item-actions">
-                <button
-                  class="action-btn"
-                  @click.stop="dialogEdit.openDialog(conversation.id, 'edit')"
-                >
-                  <img src="@/assets/photo/编辑.png" alt="edit" />
-                </button>
-                <button
-                  class="action-btn"
-                  @click.stop="dialogEdit.openDialog(conversation.id, 'delete')"
-                >
-                  <img src="@/assets/photo/删除.png" alt="delete" />
-                </button>
-              </div>
+              <p class="item-preview">{{ chatStore.getConversationPreview(conversation) }}</p>
+            </div>
+            <div class="item-actions">
+              <button
+                class="action-btn small"
+                type="button"
+                aria-label="编辑对话标题"
+                @click.stop="dialogEdit.openDialog(conversation.id, 'edit')"
+              >
+                <img src="@/assets/photo/编辑.png" alt="编辑" />
+              </button>
+              <button
+                class="action-btn small"
+                type="button"
+                aria-label="删除当前对话"
+                @click.stop="dialogEdit.openDialog(conversation.id, 'delete')"
+              >
+                <img src="@/assets/photo/删除.png" alt="删除" />
+              </button>
             </div>
           </div>
         </div>
+        <div v-else class="empty-list">没有找到匹配的会话</div>
       </div>
     </Transition>
 
-    <!-- 添加对话框组件 -->
     <DialogEdit ref="dialogEdit" />
   </div>
 </template>
@@ -113,28 +121,31 @@ defineExpose({
   position: relative;
 
   .action-btn {
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: none;
-    background: none;
+    width: 34px;
+    height: 34px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    border-radius: 10px;
     cursor: pointer;
-    border-radius: 4px;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+    transition: 0.2s ease;
 
     img {
-      width: 1.4rem;
-      height: 1.4rem;
-      opacity: 1;
-      transition: filter 0.2s;
+      width: 18px;
+      height: 18px;
     }
 
     &:hover {
-      background-color: rgba(0, 0, 0, 0.05);
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+    }
+
+    &.small {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
     }
   }
 }
@@ -143,150 +154,139 @@ defineExpose({
   position: absolute;
   top: calc(100% + 12px);
   left: 0;
-  width: 200px;
-  background: #f7f7f7;
-  border-radius: 8px;
+  width: 320px;
+  max-height: min(70vh, 640px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: #fff;
+  border-radius: 18px;
   border: 1px solid #e5e7eb;
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.1),
-    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.16);
   z-index: 1000;
-  padding: 0.5rem 0;
-  margin-top: 0;
-  animation-duration: 0.3s !important;
+}
 
-  .menu-section {
-    padding: 0.5rem 0;
+.menu-top {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-    .section-title {
-      padding: 0.5rem 1rem;
-      font-size: 0.75rem;
-      color: #6b7280;
-      font-weight: 500;
-    }
+.new-chat-btn {
+  width: 100%;
+  border-radius: 999px;
+}
 
-    .menu-item {
-      display: flex; /* 使用 flex 布局 */
-      align-items: center; /* 垂直居中对齐 */
-      justify-content: space-between; /* 两端对齐，中间留空 */
-      padding: 0.5rem 1rem; /* 内边距：上下 8px，左右 16px */
-      cursor: pointer; /* 鼠标指针样式为手型 */
-      transition: background-color 0.2s; /* 背景色过渡动画 */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: #f8fafc;
 
-      /* 左侧内容区域样式 */
-      .item-content {
-        display: flex; /* 使用 flex 布局 */
-        align-items: center; /* 垂直居中对齐 */
-        gap: 0.5rem; /* 元素间距 8px */
-
-        /* 对话图标样式 */
-        img {
-          width: 1rem; /* 图标宽度 16px */
-          height: 1rem; /* 图标高度 16px */
-        }
-
-        /* 对话标题文本样式 */
-        span {
-          font-size: 0.875rem; /* 文字大小 14px */
-          color: #374151; /* 文字颜色：深灰色 */
-        }
-      }
-
-      /* 右侧操作按钮区域样式 */
-      .item-actions {
-        display: flex; /* 使用 flex 布局 */
-        gap: 0.4rem; /* 按钮间距 4px */
-        opacity: 0; /* 默认隐藏 */
-        transition: opacity 0.2s ease; /* 透明度过渡动画 */
-
-        /* 操作按钮样式 */
-        .action-btn {
-          width: 0.9rem; /* 按钮宽度 16px */
-          height: 0.9rem; /* 按钮高度 16px */
-          padding: 0; /* 移除内边距 */
-          border: none; /* 移除边框 */
-          background: none; /* 移除背景色 */
-          cursor: pointer; /* 鼠标指针样式为手型 */
-          display: flex; /* 使用 flex 布局 */
-          align-items: center; /* 垂直居中对齐 */
-          justify-content: center; /* 水平居中对齐 */
-          opacity: 1; /* 默认透明度 */
-          transition: filter 0.2s;
-
-          /* 按钮图标样式 */
-          img {
-            width: 100%; /* 图标占满按钮宽度 */
-            height: 100%; /* 图标占满按钮高度 */
-          }
-
-          /* 按钮悬停效果 */
-          &:hover {
-            filter: brightness(0.4); /* 使用 brightness 滤镜来加深颜色 */
-          }
-        }
-      }
-
-      /* 菜单项悬停和选中状态 */
-      &:hover,
-      &.active {
-        background-color: #e5e7eb; /* 背景色：浅灰色 */
-
-        /* 显示操作按钮 */
-        .item-actions {
-          opacity: 0.7;
-        }
-      }
-
-      /* 当前选中项的特殊样式 */
-      &.active {
-        background-color: #e5e7eb; /* 背景色：浅灰色 */
-        position: relative; /* 相对定位，用于放置指示条 */
-
-        /* 左侧蓝色指示条 */
-        &::before {
-          content: ''; /* 伪元素内容 */
-          position: absolute; /* 绝对定位 */
-          left: 0; /* 靠左对齐 */
-          top: 0; /* 靠上对齐 */
-          bottom: 0; /* 延伸到底部 */
-          width: 3px; /* 指示条宽度 */
-          background-color: #3f7af1; /* 指示条颜色：蓝色 */
-          border-radius: 0 2px 2px 0; /* 右侧圆角 */
-        }
-
-        /* 选中项的文本样式 */
-        span {
-          color: #3f7af1; /* 文字颜色：蓝色 */
-          font-weight: 500; /* 字重：中等 */
-        }
-      }
-    }
-
-    .new-chat-btn {
-      width: 100%;
-      justify-content: flex-start;
-      border: none;
-      background: none;
-      height: 2.5rem;
-      padding: 0.5rem 1rem;
-      font-size: 0.875rem;
-      color: #374151;
-
-      &:hover {
-        background-color: #e5e7eb;
-      }
-
-      :deep(.el-icon) {
-        margin-right: 0.5rem;
-        font-size: 1rem;
-      }
-    }
+  input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 13px;
   }
+}
 
-  .divider {
-    height: 1px;
-    background-color: #e5e7eb;
-    margin: 0.25rem 0;
+.section-title {
+  margin: 14px 0 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.history-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-item {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: 0.2s ease;
+
+  &:hover,
+  &.active {
+    background: #f8fbff;
+    border-color: #dbeafe;
+  }
+}
+
+.item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.item-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-time {
+  flex-shrink: 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.item-preview {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0;
+  transition: 0.2s ease;
+}
+
+.menu-item:hover .item-actions,
+.menu-item.active .item-actions {
+  opacity: 1;
+}
+
+.empty-list {
+  padding: 24px 12px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .popup-menu {
+    width: min(90vw, 320px);
   }
 }
 </style>

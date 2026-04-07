@@ -1,48 +1,116 @@
-// :root 选择器通常用于定义全局 CSS 变量（也称为自定义属性）,整个文档中被引用和使用，可以通过 var() 函数来引用这些变量
+/**
+ * CSS 变量定义文件
+ * 
+ * 定义全局 CSS 变量（自定义属性），用于主题管理和样式复用
+ * 这些变量在整个文档中都可以通过 var() 函数引用和使用
+ * 
+ * 优势：
+ * - 集中管理颜色和样式值
+ * - 支持主题切换（通过修改变量值）
+ * - 提高代码可维护性
+ * - 支持运行时动态修改
+ */
+
+/**
+ * :root 选择器
+ * 
+ * 用于定义全局 CSS 变量
+ * 在整个文档中都可以通过 var() 函数引用这些变量
+ * 
+ * 使用方式：
+ * color: var(--text-color);
+ * background-color: var(--bg-color);
+ */
 :root {
-  // 基础颜色
-  --text-color: #000000;
-  --text-color-secondary: #bbbfc4;
-  --bg-color: #ffffff;
-  --border-color: #c5c5c5;
+  /**
+   * 基础颜色变量
+   * 
+   * 定义应用的基础颜色方案（明亮主题）
+   */
+  --text-color: #000000; // 主要文字颜色（黑色）
+  --text-color-secondary: #bbbfc4; // 次要文字颜色（灰色，用于辅助信息）
+  --bg-color: #ffffff; // 背景颜色（白色）
+  --border-color: #c5c5c5; // 边框颜色（浅灰色）
 
-  // 代码相关的颜色和字体
+  /**
+   * 代码相关的颜色和字体
+   * 
+   * 用于代码块的样式定义
+   */
   --code-font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
-  --code-lang-text: #000000;
-  --code-block-bg: #fcfcfc;
-  --code-header-bg: #f3f4f6;
-  --code-border: #ebebeb;
-  --code-text: #383a42; /* 添加默认代码文本颜色 - 接近黑色 */
-  --code-header-button-hover-bg: #e5e6e8;
+  // 代码字体栈：优先使用 Fira Code，依次降级到系统等宽字体
+  // Fira Code: 支持连字的编程字体
+  // Consolas: Windows 系统等宽字体
+  // Monaco: macOS 系统等宽字体
+  // Courier New: 通用等宽字体
+  // monospace: 通用等宽字体族
+
+  --code-lang-text: #000000; // 代码语言标识文字颜色（黑色）
+  --code-block-bg: #fcfcfc; // 代码块背景色（浅灰色）
+  --code-header-bg: #f3f4f6; // 代码块头部背景色（更浅的灰色）
+  --code-border: #ebebeb; // 代码块边框颜色（极浅灰色）
+  --code-text: #383a42; // 代码文本颜色（深灰色，接近黑色）
+  --code-header-button-hover-bg: #e5e6e8; // 代码块头部按钮悬停背景色
 }
 
-/* 代码块的暗色主题 */
+/**
+ * 代码块基础样式
+ * 
+ * 定义明亮模式下的代码块样式
+ */
 .code-block {
-  /* 明亮模式下的代码文本颜色 */
+  /**
+   * 明亮模式下的代码文本颜色
+   * 
+   * 使用 highlight.js 的 hljs 类名
+   */
   pre.hljs {
-    color: var(--code-text);
+    color: var(--code-text); // 使用变量定义的代码文本颜色
   }
 }
 
+/**
+ * 代码块暗色主题
+ * 
+ * 当代码块添加 .dark-theme 类时，应用暗色主题样式
+ * 通过覆盖 CSS 变量实现主题切换
+ * 
+ * 使用方式：
+ * <div class="code-block dark-theme">
+ *   <pre><code>代码</code></pre>
+ * </div>
+ */
 .code-block.dark-theme {
-  --code-block-bg: #282c34; /* atom-one-dark 的背景色 */
-  --code-header-bg: #21252b; /* 略深一点的头部背景色 */
-  --code-border: #181a1f; /* 更深的边框色 */
-  --code-lang-text: #abb2bf; /* atom-one-dark 的默认文本色 */
-  --code-header-button-hover-bg: #2c313a;
-  --code-text: #abb2bf;
+  /**
+   * 暗色主题变量覆盖
+   * 
+   * 使用 atom-one-dark 主题的颜色方案
+   */
+  --code-block-bg: #282c34; // atom-one-dark 的背景色（深灰蓝色）
+  --code-header-bg: #21252b; // 略深一点的头部背景色（更深的灰蓝色）
+  --code-border: #181a1f; // 更深的边框色（接近黑色）
+  --code-lang-text: #abb2bf; // atom-one-dark 的默认文本色（浅灰蓝色）
+  --code-header-button-hover-bg: #2c313a; // 按钮悬停背景色（中等灰蓝色）
+  --code-text: #abb2bf; // 代码文本颜色（浅灰蓝色）
 
+  /**
+   * 代码块内容样式
+   */
   pre.hljs {
-    background-color: var(--code-block-bg);
-    /* atom-one-dark 主题会自动处理暗色模式的文本颜色 */
+    background-color: var(--code-block-bg); // 使用暗色背景
+    // atom-one-dark 主题会自动处理暗色模式的文本颜色
+    // highlight.js 会根据语法高亮自动应用颜色
   }
 
+  /**
+   * 代码块头部样式
+   */
   .code-header {
-    background-color: var(--code-header-bg);
-    border-color: var(--code-border);
+    background-color: var(--code-header-bg); // 使用暗色头部背景
+    border-color: var(--code-border); // 使用暗色边框
 
     .code-lang {
-      color: var(--code-lang-text);
+      color: var(--code-lang-text); // 使用暗色文字颜色
     }
   }
 }

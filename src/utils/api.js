@@ -126,6 +126,10 @@ const toResponsesInputMessage = (message) => {
 const isRetryableError = (error, status) => {
   const errorMessage = error?.message?.toLowerCase?.() || ''
 
+  if (error?.name === 'AbortError' || errorMessage.includes('request_aborted')) {
+    return false
+  }
+
   // 配置类错误（模型/provider 不存在）不应重试
   if (
     errorMessage.includes('unknown provider for model') ||
@@ -207,21 +211,51 @@ const sleep = (ms) => {
  * @param {number} timeout - 超时时间（毫秒）
  * @returns {Promise<Response>}
  */
-const fetchWithTimeout = async (url, options, timeout) => {
-  // 创建 AbortController 用于取消请求
+const createAbortError = (message = 'REQUEST_ABORTED') => {
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+const createCombinedSignal = (signals = []) => {
+  const validSignals = signals.filter(Boolean)
+  if (validSignals.length === 0) return null
+  if (validSignals.length === 1) return validSignals[0]
+
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  const abort = (event) => {
+    controller.abort(event?.target?.reason)
+    validSignals.forEach((signal) => signal.removeEventListener('abort', abort))
+  }
+
+  validSignals.forEach((signal) => {
+    if (signal.aborted) {
+      controller.abort(signal.reason)
+    } else {
+      signal.addEventListener('abort', abort, { once: true })
+    }
+  })
+
+  return controller.signal
+}
+
+const fetchWithTimeout = async (url, options, timeout) => {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort('timeout'), timeout)
+  const signal = createCombinedSignal([controller.signal, options?.signal])
 
   try {
     const response = await fetch(url, {
       ...options,
-      signal: controller.signal,
+      signal,
     })
     clearTimeout(timeoutId)
     return response
   } catch (error) {
     clearTimeout(timeoutId)
-    // 如果是超时错误，包装成 TimeoutError
+    if (options?.signal?.aborted) {
+      throw createAbortError('REQUEST_ABORTED')
+    }
     if (error.name === 'AbortError') {
       throw new Error(`请求超时（${timeout}ms）`)
     }
@@ -408,20 +442,20 @@ const resolveModelForRequest = async (currentModel, apiKey) => {
  * ]
  * const response = await createChatCompletion(messages)
  */
-export const createChatCompletion = async (messages) => {
-  // 获取设置 store 实例
+export const createChatCompletion = async (messages, requestOptions = {}) => {
   const settingStore = useSettingStore()
   const apiBaseUrl = getApiBaseUrl(settingStore)
   const effectiveApiKey = getEffectiveApiKey(settingStore.settings.apiKey)
   const useProxy = !effectiveApiKey
-  const resolvedModel = await resolveModelForRequest(settingStore.settings.model, effectiveApiKey)
+  const previousModel = settingStore.settings.model
+  const resolvedModel = await resolveModelForRequest(previousModel, effectiveApiKey)
 
-  // 自动修正为可用模型，并同步到设置
-  if (resolvedModel !== settingStore.settings.model) {
+  if (resolvedModel !== previousModel) {
     console.warn(
-      `[Model Auto-Switch] 当前模型 ${settingStore.settings.model} 不可用，已切换为 ${resolvedModel}`,
+      `[Model Auto-Switch] 当前模型 ${previousModel} 不可用，已切换为 ${resolvedModel}`,
     )
     settingStore.settings.model = resolvedModel
+    requestOptions?.onModelResolved?.({ previousModel, resolvedModel })
   }
 
   // 从设置 store 中读取当前模型与采样参数，组装请求体
@@ -470,7 +504,10 @@ export const createChatCompletion = async (messages) => {
       // 发起 HTTP 请求（带超时控制）
       const response = await fetchWithTimeout(
         useProxy ? PROXY_RESPONSES_URL : getApiUrl(apiBaseUrl, '/responses'),
-        options,
+        {
+          ...options,
+          signal: requestOptions.signal,
+        },
         RETRY_CONFIG.TIMEOUT,
       )
 

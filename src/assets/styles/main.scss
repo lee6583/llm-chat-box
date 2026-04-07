@@ -1,36 +1,102 @@
+/**
+ * 全局样式文件
+ * 
+ * 定义应用级别的基础样式和过渡动画
+ * 这些样式会影响整个应用的外观和行为
+ */
+
+// 引入样式变量文件，使用其中的 CSS 变量
 @use 'variables.scss';
 
+/**
+ * 全局重置样式
+ * 
+ * 重置所有元素的默认样式，确保跨浏览器一致性
+ */
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+  margin: 0; // 移除默认外边距
+  padding: 0; // 移除默认内边距
+  box-sizing: border-box; // 使用 border-box 盒模型（宽度包含 padding 和 border）
 }
 
+/**
+ * Body 基础样式
+ * 
+ * 设置全局字体、背景色、文字颜色等基础样式
+ */
 body {
+  // 字体栈：优先使用系统字体，提供跨平台一致的字体体验
+  // -apple-system: macOS/iOS 系统字体
+  // BlinkMacSystemFont: macOS Chrome 系统字体
+  // 'Segoe UI': Windows 系统字体
+  // Roboto: Android 系统字体
+  // 'Helvetica Neue', Arial: 备用字体
+  // sans-serif: 通用无衬线字体
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  
+  // 背景色：使用 CSS 变量，支持主题切换
   background-color: var(--bg-color);
+  
+  // 文字颜色：使用 CSS 变量，支持主题切换
   color: var(--text-color-primary);
+  
+  // 行高：1.6 倍行高，提供良好的可读性
   line-height: 1.6;
+  
+  // 过渡动画：背景色和文字颜色变化时使用平滑过渡
+  // 用于主题切换时的平滑过渡效果
   transition: background-color 0.3s, color 0.3s;
 }
 
+/**
+ * Fade 淡入淡出过渡动画
+ * 
+ * 用于元素的显示/隐藏过渡效果
+ * 常用于弹窗、提示框等组件的出现和消失
+ * 
+ * 使用方式：
+ * <Transition name="fade">
+ *   <div v-if="show">内容</div>
+ * </Transition>
+ */
 .fade-enter-active,
 .fade-leave-active {
+  // 进入和离开时的过渡效果
+  // opacity: 透明度变化
+  // 0.3s: 动画时长
+  // ease: 缓动函数（先慢后快再慢）
   transition: opacity 0.3s ease;
 }
 
 .fade-enter-from,
 .fade-leave-to {
+  // 进入前和离开后的状态（完全透明）
   opacity: 0;
 }
 
+/**
+ * Slide-Fade 滑动淡入淡出过渡动画
+ * 
+ * 结合了滑动和淡入淡出的效果
+ * 元素从下方滑入并淡入，离开时向下滑动并淡出
+ * 
+ * 使用方式：
+ * <Transition name="slide-fade">
+ *   <div v-if="show">内容</div>
+ * </Transition>
+ */
 .slide-fade-enter-active,
 .slide-fade-leave-active {
+  // 进入和离开时的过渡效果
+  // all: 所有属性变化都应用过渡
+  // 0.3s: 动画时长
+  // ease: 缓动函数
   transition: all 0.3s ease;
 }
 
 .slide-fade-enter-from,
 .slide-fade-leave-to {
-  transform: translateY(10px);
-  opacity: 0;
+  // 进入前和离开后的状态
+  transform: translateY(10px); // 向下偏移 10px（滑动效果）
+  opacity: 0; // 完全透明（淡入淡出效果）
 }

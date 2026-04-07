@@ -215,9 +215,48 @@ export const createPiniaIndexedDbPersist = (options = {}) => {
     const configs = normalizePersistConfigs(storeOptions?.persist)
     if (configs.length === 0) return
 
+    let isPaused = false
+    const trackedKeys = new Set()
+    const pendingWrites = new Map()
+
+    const clearScheduledPersist = (key) => {
+      const timer = timers.get(key)
+      if (timer) {
+        clearTimeout(timer)
+        timers.delete(key)
+      }
+    }
+
+    const flushPendingWrites = async () => {
+      const entries = Array.from(pendingWrites.entries())
+      pendingWrites.clear()
+
+      for (const [key, serialized] of entries) {
+        clearScheduledPersist(key)
+        await storage.setItem(key, serialized)
+      }
+    }
+
+    store.$pausePersistence = () => {
+      isPaused = true
+      trackedKeys.forEach(clearScheduledPersist)
+    }
+
+    store.$resumePersistence = async ({ flush = true } = {}) => {
+      isPaused = false
+      if (flush) {
+        await flushPendingWrites()
+      } else {
+        pendingWrites.clear()
+      }
+    }
+
+    store.$flushPersistence = flushPendingWrites
+
     for (const config of configs) {
       const key = config.key || store.$id
       const paths = Array.isArray(config.paths) ? config.paths : null
+      trackedKeys.add(key)
 
       // 先恢复，再订阅，避免启动时默认值覆盖已持久化数据
       ;(async () => {
@@ -231,6 +270,11 @@ export const createPiniaIndexedDbPersist = (options = {}) => {
           (_mutation, state) => {
             const toPersist = pickStatePaths(state, paths)
             const serialized = JSON.stringify(toPersist)
+            if (isPaused) {
+              pendingWrites.set(key, serialized)
+              clearScheduledPersist(key)
+              return
+            }
             schedulePersist(key, serialized)
           },
           { detached: true },
