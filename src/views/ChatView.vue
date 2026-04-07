@@ -493,9 +493,12 @@ const handleBack = () => {
 
 <style lang="scss" scoped>
 .chat-container {
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
 }
 
 .chat-header {
@@ -503,7 +506,7 @@ const handleBack = () => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 0.8rem 1rem;
+  padding: calc(0.8rem + var(--safe-area-top)) 1rem 0.8rem;
   background: var(--bg-color);
   border-bottom: 1px solid #eef2f7;
 
@@ -658,7 +661,7 @@ const handleBack = () => {
   left: 0;
   right: 0;
   background: linear-gradient(180deg, rgba(248, 250, 252, 0) 0%, #f8fafc 18%, #f8fafc 100%);
-  padding: 0.75rem;
+  padding: 0.75rem 0.75rem calc(0.75rem + var(--safe-area-bottom));
   max-width: 860px;
   width: 100%;
   margin: 0 auto;
@@ -666,18 +669,44 @@ const handleBack = () => {
 
 @media (max-width: 768px) {
   .chat-header {
-    padding: 0.75rem;
-    align-items: flex-start;
+    padding: calc(0.55rem + var(--safe-area-top)) 0.75rem 0.55rem;
+    align-items: stretch;
     flex-direction: column;
+    gap: 10px;
 
     .header-left,
     .header-right {
       width: 100%;
       justify-content: space-between;
+      gap: 8px;
     }
 
     .title-wrapper {
       flex: 1;
+      min-width: 0;
+    }
+
+    .header-right {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .new-chat-btn {
+      padding-inline: 12px;
+    }
+
+    .chat-title {
+      font-size: 0.95rem;
+    }
+
+    .chat-subtitle {
+      font-size: 11px;
+    }
+
+    .stream-status {
+      font-size: 12px;
+      padding: 5px 8px;
+      order: -1;
     }
   }
 
@@ -688,6 +717,14 @@ const handleBack = () => {
   .messages-container,
   .chat-input-container {
     max-width: 100%;
+  }
+
+  .messages-container {
+    padding: 0.75rem 0.6rem;
+  }
+
+  .chat-input-container {
+    padding: 0.5rem 0.6rem calc(0.6rem + var(--safe-area-bottom));
   }
 }
 </style>

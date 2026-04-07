@@ -178,6 +178,7 @@ const handleStop = () => {
   max-width: 720px;
   min-width: 320px;
   max-height: min(80vh, 720px);
+  max-height: min(80dvh, 720px);
   background: #fff;
   border-radius: 18px;
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.16);
@@ -267,6 +268,67 @@ const handleStop = () => {
   &:hover {
     border-color: #bfdbfe;
     box-shadow: 0 10px 20px rgba(37, 99, 235, 0.08);
+  }
+}
+
+@media (max-width: 768px) {
+  .search-dialog {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 20px;
+    box-shadow: 0 12px 36px rgba(15, 23, 42, 0.16);
+  }
+
+  .search-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #fff;
+    padding: 12px;
+  }
+
+  .search-input {
+    height: auto;
+    min-height: 48px;
+    padding: 8px 10px;
+    border-radius: 16px;
+    align-items: stretch;
+    gap: 8px;
+
+    input {
+      font-size: 16px;
+      min-width: 0;
+    }
+
+    .action-btn {
+      flex-shrink: 0;
+      min-width: 64px;
+      padding: 10px 14px;
+      font-size: 14px;
+    }
+  }
+
+  .dialog-content {
+    padding: 12px;
+    padding-bottom: calc(12px + var(--safe-area-bottom));
+    gap: 12px;
+  }
+
+  .initial-message {
+    padding: 0 2px 10px;
+    font-size: 14px;
+  }
+
+  .prompt-list {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-item {
+    padding: 12px;
+    font-size: 14px;
   }
 }
 </style>

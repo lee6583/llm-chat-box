@@ -237,9 +237,21 @@ const hasError = computed(() => props.message.status === 'error')
   &.is-mine {
     justify-content: flex-end;
 
+    .content {
+      width: auto;
+      max-width: min(100%, 760px);
+      margin-left: auto;
+    }
+
     .bubble,
     .attachment-report {
       background-color: #f5f7fb;
+    }
+
+    .bubble,
+    .attachment-report,
+    .files-container {
+      margin-left: auto;
     }
   }
 

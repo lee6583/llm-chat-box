@@ -472,17 +472,48 @@ const handleFileRemove = (file) => {
 
 @media (max-width: 768px) {
   .chat-input-wrapper {
+    border-radius: 18px;
+    padding: 0.7rem;
+
     .toolbar-footer {
       align-items: stretch;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .input-tips {
+      width: 100%;
+      font-size: 11px;
     }
 
     .button-group {
       width: 100%;
-      justify-content: flex-end;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .divider {
+      display: none;
     }
 
     .preview-area {
       grid-template-columns: 1fr;
+    }
+
+    .action-btn {
+      min-width: 42px;
+      height: 40px;
+      padding: 0 12px;
+      border-radius: 12px;
+    }
+
+    .stop-btn {
+      margin-left: auto;
+      min-width: 72px;
+    }
+
+    :deep(.el-textarea__inner) {
+      font-size: 16px;
     }
   }
 }
